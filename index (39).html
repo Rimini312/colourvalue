@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estudio de Valores — herramienta para pintores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --panel:#232326;
+    --panel-2:#2b2b2f;
+    --ink:#ECEAE6;
+    --muted:#9a978f;
+    --line:#3a3a3f;
+    --accent:#C8442D;      /* rojo cadmio */
+    --accent-soft:#e0604a;
+    --canvas-bg:#787878;   /* gris neutro ~18%, como pared de taller */
+    --radius:10px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    background:var(--panel);
+    color:var(--ink);
+    display:flex; flex-direction:column;
+  }
+  header{
+    display:flex; align-items:baseline; gap:14px;
+    padding:14px 22px; border-bottom:1px solid var(--line);
+  }
+  header h1{
+    font-family:"Fraunces",serif; font-weight:600; font-size:1.35rem; letter-spacing:.01em;
+  }
+  header h1 span{color:var(--accent-soft);}
+  header p{color:var(--muted); font-size:.85rem;}
+
+  .app{
+    flex:1; display:grid; grid-template-columns:300px 1fr; min-height:0;
+  }
+
+  /* ---------- Panel de controles ---------- */
+  aside{
+    border-right:1px solid var(--line);
+    padding:18px; overflow-y:auto;
+    display:flex; flex-direction:column; gap:20px;
+    background:var(--panel);
+  }
+  .group h2{
+    font-size:.7rem; text-transform:uppercase; letter-spacing:.14em;
+    color:var(--muted); margin-bottom:10px; font-weight:600;
+  }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    background:var(--panel-2); color:var(--ink);
+    border:1px solid var(--line); border-radius:var(--radius);
+    padding:9px 14px; font:inherit; font-size:.85rem; cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .btn:hover{border-color:var(--accent-soft);}
+  .btn:focus-visible{outline:2px solid var(--accent-soft); outline-offset:2px;}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.primary:hover{background:var(--accent-soft);}
+  .btn:disabled{opacity:.4; cursor:not-allowed;}
+  .btn-row{display:flex; flex-wrap:wrap; gap:8px;}
+
+  .slider{margin-bottom:14px;}
+  .slider label{
+    display:flex; justify-content:space-between; font-size:.82rem; margin-bottom:5px;
+  }
+  .slider label b{font-family:"IBM Plex Mono",monospace; font-weight:500; color:var(--muted); font-size:.78rem;}
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:4px; border-radius:2px;
+    background:var(--line); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--ink); border:3px solid var(--accent); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:10px; height:10px; border-radius:50%;
+    background:var(--ink); border:3px solid var(--accent); cursor:pointer;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--accent-soft); outline-offset:4px;}
+
+  .modes{display:grid; grid-template-columns:repeat(3,1fr); gap:6px;}
+  .modes button{
+    font-size:.75rem; padding:8px 4px; border-radius:8px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--ink); cursor:pointer;
+  }
+  .modes button.active{border-color:var(--accent); background:#3a2621;}
+  .modes button:focus-visible{outline:2px solid var(--accent-soft);}
+
+  .hint{font-size:.75rem; color:var(--muted); line-height:1.45;}
+
+  /* ---------- Zona de lienzo ---------- */
+  main{
+    background:var(--canvas-bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; gap:14px; min-height:0; position:relative;
+  }
+  #dropzone{
+    border:2px dashed rgba(255,255,255,.5); border-radius:14px;
+    padding:60px 40px; text-align:center; color:#2e2e2e;
+    background:rgba(255,255,255,.12); cursor:pointer; max-width:460px;
+  }
+  #dropzone h3{font-family:"Fraunces",serif; font-size:1.2rem; margin-bottom:8px; color:#222;}
+  #dropzone p{font-size:.85rem; color:#333;}
+  #dropzone.drag{background:rgba(255,255,255,.3); border-color:#fff;}
+
+  #stage{position:relative; max-width:100%; max-height:100%; display:none; line-height:0;
+         box-shadow:0 6px 30px rgba(0,0,0,.35);}
+  #canvas, #overlay{max-width:100%; max-height:calc(100vh - 260px); display:block;}
+  #overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+
+  #cropBox{
+    position:absolute; display:none; border:1.5px solid #fff;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.55); cursor:move; touch-action:none;
+  }
+  #cropBox::after{
+    content:""; position:absolute; right:-7px; bottom:-7px; width:14px; height:14px;
+    background:var(--accent); border:2px solid #fff; border-radius:3px; cursor:nwse-resize;
+  }
+
+  /* escala de valores — firma de la app */
+  #valueScale{
+    display:none; width:min(560px,90%); height:26px; border-radius:6px; overflow:hidden;
+    box-shadow:0 2px 10px rgba(0,0,0,.3); flex-shrink:0;
+  }
+  #valueScale div{flex:1;}
+  #valueScale{display:none;}
+  #valueScale.visible{display:flex;}
+  .scale-caption{font-size:.72rem; color:#2c2c2c; letter-spacing:.08em; text-transform:uppercase;}
+
+  #status{
+    position:absolute; top:14px; right:16px; font-size:.78rem;
+    font-family:"IBM Plex Mono",monospace; color:#fff;
+    background:rgba(0,0,0,.55); padding:5px 10px; border-radius:6px; display:none;
+  }
+
+  footer{
+    padding:8px 22px; border-top:1px solid var(--line);
+    font-size:.72rem; color:var(--muted); display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+
+  @media (max-width:820px){
+    .app{grid-template-columns:1fr; grid-template-rows:auto 1fr;}
+    aside{order:2; border-right:none; border-top:1px solid var(--line); max-height:45vh;}
+    main{order:1;}
+    #canvas,#overlay{max-height:44vh;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Estudio de <span>Valores</span></h1>
+  <p>Prepara tu referencia: tonos, luces y sombras para pintar retratos.</p>
+</header>
+
+<div class="app">
+  <aside>
+    <div class="group">
+      <h2>Imagen</h2>
+      <div class="btn-row">
+        <button class="btn primary" id="btnOpen">Abrir foto</button>
+        <button class="btn" id="btnCrop" disabled>Recortar</button>
+        <button class="btn" id="btnFlip" disabled title="Voltear en espejo: revela errores de dibujo">Espejo</button>
+        <button class="btn" id="btnRotate" disabled>Girar 90°</button>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <div class="btn-row" id="cropActions" style="display:none; margin-top:8px;">
+        <button class="btn primary" id="btnCropApply">Aplicar recorte</button>
+        <button class="btn" id="btnCropCancel">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Tono</h2>
+      <div class="modes" id="modes">
+        <button data-mode="color" class="active">Color</button>
+        <button data-mode="bn">B / N</button>
+        <button data-mode="sepia">Sepia</button>
+        <button data-mode="frio">Frío</button>
+        <button data-mode="tierra">Tierra</button>
+        <button data-mode="verde">Verdacho</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Luz y contraste</h2>
+      <div class="slider">
+        <label>Exposición <b id="vExp">0</b></label>
+        <input type="range" id="sExp" min="-100" max="100" value="0">
+      </div>
+      <div class="slider">
+        <label>Contraste <b id="vCon">0</b></label>
+        <input type="range" id="sCon" min="-100" max="100" value="0">
+      </div>
+      <div class="slider">
+        <label>Luces <b id="vHi">0</b></label>
+        <input type="range" id="sHi" min="-100" max="100" value="0">
+      </div>
+      <div class="slider">
+        <label>Sombras <b id="vSh">0</b></label>
+        <input type="range" id="sSh" min="-100" max="100" value="0">
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Simplificar</h2>
+      <div class="slider">
+        <label>Mediana (radio px) <b id="vMed">0</b></label>
+        <input type="range" id="sMed" min="0" max="8" value="0">
+      </div>
+      <div class="slider">
+        <label>Posterizar valores <b id="vPos">off</b></label>
+        <input type="range" id="sPos" min="1" max="8" value="1">
+      </div>
+      <p class="hint">La mediana funde detalles y deja manchas de tono, como el filtro de Photoshop. Posterizar agrupa la imagen en 2–8 valores: ideal para planificar las masas de luz y sombra.</p>
+    </div>
+
+    <div class="group">
+      <h2>Ver</h2>
+      <div class="btn-row">
+        <button class="btn" id="btnGrid" disabled>Cuadrícula</button>
+        <button class="btn" id="btnCompare" disabled title="Mantén pulsado">Ver original</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Exportar</h2>
+      <div class="btn-row">
+        <button class="btn primary" id="btnDownload" disabled>Descargar PNG</button>
+        <button class="btn" id="btnReset" disabled>Reiniciar ajustes</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="dropzone" tabindex="0">
+      <h3>Arrastra una foto aquí</h3>
+      <p>o haz clic para elegir un archivo.<br>También puedes pegarla con Ctrl+V.</p>
+    </div>
+
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+      <canvas id="overlay"></canvas>
+      <div id="cropBox"></div>
+    </div>
+
+    <div id="valueScale" aria-hidden="true"></div>
+    <span class="scale-caption" id="scaleCaption" style="display:none;">Escala de valores · 0 – 9</span>
+
+    <div id="status">Procesando…</div>
+  </main>
+</div>
+
+<footer>
+  <span>El fondo es gris neutro (~18 %) para juzgar los valores sin engaño, como la pared de un taller.</span>
+  <span>Todo se procesa en tu navegador; ninguna foto se sube a ningún servidor.</span>
+</footer>
+
+<script>
+"use strict";
+
+/* ---------- Estado ---------- */
+const MAX_DIM = 1600;                 // resolución de trabajo
+let srcCanvas = null;                 // imagen recortada (fuente)
+let medianCache = { radius: 0, data: null };
+let cropMode = false;
+let gridOn = false;
+
+const state = { mode:"color", exp:0, con:0, hi:0, sh:0, med:0, pos:1 };
+
+const $ = id => document.getElementById(id);
+const canvas = $("canvas"), ctx = canvas.getContext("2d");
+const overlay = $("overlay"), octx = overlay.getContext("2d");
+const stage = $("stage"), dropzone = $("dropzone"), statusEl = $("status");
+const cropBox = $("cropBox");
+
+/* ---------- Escala de valores (firma) ---------- */
+(function buildScale(){
+  const bar = $("valueScale");
+  for (let i = 0; i < 10; i++){
+    const d = document.createElement("div");
+    const v = Math.round(255 * i / 9);
+    d.style.background = `rgb(${v},${v},${v})`;
+    bar.appendChild(d);
+  }
+})();
+
+/* ---------- Carga de imagen ---------- */
+function loadFile(file){
+  if (!file || !file.type.startsWith("image/")) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    setSource(img, img.naturalWidth, img.naturalHeight);
+  };
+  img.src = url;
+}
+
+function setSource(drawable, w, h){
+  const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+  const nw = Math.max(1, Math.round(w * scale));
+  const nh = Math.max(1, Math.round(h * scale));
+  srcCanvas = document.createElement("canvas");
+  srcCanvas.width = nw; srcCanvas.height = nh;
+  srcCanvas.getContext("2d").drawImage(drawable, 0, 0, nw, nh);
+  medianCache = { radius: 0, data: null };
+  canvas.width = overlay.width = nw;
+  canvas.height = overlay.height = nh;
+  dropzone.style.display = "none";
+  stage.style.display = "block";
+  $("valueScale").classList.add("visible");
+  $("scaleCaption").style.display = "block";
+  ["btnCrop","btnFlip","btnRotate","btnGrid","btnCompare","btnDownload","btnReset"]
+    .forEach(id => $(id).disabled = false);
+  scheduleRender(true);
+}
+
+$("btnOpen").onclick = () => $("fileInput").click();
+dropzone.onclick = () => $("fileInput").click();
+dropzone.onkeydown = e => { if (e.key === "Enter" || e.key === " ") $("fileInput").click(); };
+$("fileInput").onchange = e => loadFile(e.target.files[0]);
+
+["dragover","dragleave","drop"].forEach(ev =>
+  document.addEventListener(ev, e => {
+    e.preventDefault();
+    if (ev === "dragover") dropzone.classList.add("drag");
+    else dropzone.classList.remove("drag");
+    if (ev === "drop") loadFile(e.dataTransfer.files[0]);
+  })
+);
+document.addEventListener("paste", e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) loadFile(item.getAsFile());
+});
+
+/* ---------- Sliders y modos ---------- */
+function bindSlider(id, key, labelId, fmt, heavy){
+  const el = $("s" + id);
+  el.addEventListener("input", () => {
+    state[key] = +el.value;
+    $(labelId).textContent = fmt(+el.value);
+    if (!heavy) scheduleRender();
+  });
+  if (heavy) el.addEventListener("change", () => scheduleRender(true));
+}
+bindSlider("Exp","exp","vExp", v => v, false);
+bindSlider("Con","con","vCon", v => v, false);
+bindSlider("Hi","hi","vHi", v => v, false);
+bindSlider("Sh","sh","vSh", v => v, false);
+bindSlider("Med","med","vMed", v => v, true);
+bindSlider("Pos","pos","vPos", v => v <= 1 ? "off" : v + " valores", false);
+
+$("modes").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("modes").children].forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  state.mode = b.dataset.mode;
+  scheduleRender();
+});
+
+$("btnReset").onclick = () => {
+  state.exp = state.con = state.hi = state.sh = state.med = 0; state.pos = 1;
+  ["Exp","Con","Hi","Sh","Med"].forEach(id => { $("s"+id).value = 0; });
+  $("sPos").value = 1;
+  $("vExp").textContent = $("vCon").textContent = $("vHi").textContent = $("vSh").textContent = "0";
+  $("vMed").textContent = "0"; $("vPos").textContent = "off";
+  scheduleRender(true);
+};
+
+/* ---------- Girar / espejo ---------- */
+$("btnRotate").onclick = () => {
+  const c = document.createElement("canvas");
+  c.width = srcCanvas.height; c.height = srcCanvas.width;
+  const x = c.getContext("2d");
+  x.translate(c.width, 0); x.rotate(Math.PI / 2);
+  x.drawImage(srcCanvas, 0, 0);
+  setSource(c, c.width, c.height);
+};
+$("btnFlip").onclick = () => {
+  const c = document.createElement("canvas");
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const x = c.getContext("2d");
+  x.translate(c.width, 0); x.scale(-1, 1);
+  x.drawImage(srcCanvas, 0, 0);
+  setSource(c, c.width, c.height);
+};
+
+/* ---------- Recorte ---------- */
+let crop = null; // {x,y,w,h} en coords de pantalla relativas al stage
+$("btnCrop").onclick = () => {
+  cropMode = true;
+  $("cropActions").style.display = "flex";
+  const r = canvas.getBoundingClientRect();
+  crop = { x: r.width * .1, y: r.height * .1, w: r.width * .8, h: r.height * .8 };
+  drawCropBox();
+  cropBox.style.display = "block";
+};
+function drawCropBox(){
+  cropBox.style.left = crop.x + "px";
+  cropBox.style.top = crop.y + "px";
+  cropBox.style.width = crop.w + "px";
+  cropBox.style.height = crop.h + "px";
+}
+let drag = null;
+cropBox.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  cropBox.setPointerCapture(e.pointerId);
+  const rect = cropBox.getBoundingClientRect();
+  const nearCorner = (rect.right - e.clientX < 20) && (rect.bottom - e.clientY < 20);
+  drag = { mode: nearCorner ? "resize" : "move", sx: e.clientX, sy: e.clientY, ...crop };
+});
+cropBox.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const r = canvas.getBoundingClientRect();
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (drag.mode === "move"){
+    crop.x = Math.min(Math.max(0, drag.x + dx), r.width - crop.w);
+    crop.y = Math.min(Math.max(0, drag.y + dy), r.height - crop.h);
+  } else {
+    crop.w = Math.min(Math.max(30, drag.w + dx), r.width - crop.x);
+    crop.h = Math.min(Math.max(30, drag.h + dy), r.height - crop.y);
+  }
+  drawCropBox();
+});
+["pointerup","pointercancel"].forEach(ev => cropBox.addEventListener(ev, () => drag = null));
+
+$("btnCropCancel").onclick = endCrop;
+$("btnCropApply").onclick = () => {
+  const r = canvas.getBoundingClientRect();
+  const k = srcCanvas.width / r.width;
+  const sx = Math.round(crop.x * k), sy = Math.round(crop.y * k);
+  const sw = Math.round(crop.w * k), sh = Math.round(crop.h * k);
+  const c = document.createElement("canvas");
+  c.width = sw; c.height = sh;
+  c.getContext("2d").drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  endCrop();
+  setSource(c, sw, sh);
+};
+function endCrop(){
+  cropMode = false;
+  cropBox.style.display = "none";
+  $("cropActions").style.display = "none";
+}
+
+/* ---------- Filtro de mediana (algoritmo de Huang) ---------- */
+function medianFilter(srcData, w, h, r){
+  const src = srcData.data;
+  const out = new Uint8ClampedArray(src.length);
+  const win = 2 * r + 1, area = win * win, half = area >> 1;
+  for (let ch = 0; ch < 3; ch++){
+    const hist = new Int32Array(256);
+    for (let y = 0; y < h; y++){
+      hist.fill(0);
+      // ventana inicial en x = 0 (bordes replicados)
+      for (let j = -r; j <= r; j++){
+        let yy = y + j; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+        const row = yy * w;
+        for (let i = -r; i <= r; i++){
+          let xx = i; if (xx < 0) xx = 0;
+          hist[src[(row + xx) * 4 + ch]]++;
+        }
+      }
+      let mdn = 0, lt = 0;
+      while (lt + hist[mdn] <= half){ lt += hist[mdn]; mdn++; }
+      out[(y * w) * 4 + ch] = mdn;
+      for (let x = 1; x < w; x++){
+        let xl = x - r - 1; if (xl < 0) xl = 0;
+        let xr = x + r; if (xr >= w) xr = w - 1;
+        for (let j = -r; j <= r; j++){
+          let yy = y + j; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+          const row = yy * w;
+          const vOut = src[(row + xl) * 4 + ch];
+          hist[vOut]--; if (vOut < mdn) lt--;
+          const vIn = src[(row + xr) * 4 + ch];
+          hist[vIn]++; if (vIn < mdn) lt++;
+        }
+        while (lt > half){ mdn--; lt -= hist[mdn]; }
+        while (lt + hist[mdn] <= half){ lt += hist[mdn]; mdn++; }
+        out[(y * w + x) * 4 + ch] = mdn;
+      }
+    }
+  }
+  for (let i = 3; i < src.length; i += 4) out[i] = src[i];
+  return new ImageData(out, w, h);
+}
+
+/* ---------- Duotonos ---------- */
+const TINTS = {
+  bn:     [[0,0,0],       [255,255,255]],
+  sepia:  [[38,26,14],    [255,244,220]],
+  frio:   [[12,22,44],    [226,240,255]],
+  tierra: [[46,18,10],    [255,236,214]],
+  verde:  [[18,30,20],    [235,244,226]]
+};
+
+/* ---------- Render ---------- */
+let renderQueued = false;
+function scheduleRender(heavy = false){
+  if (heavy){
+    statusEl.style.display = "block";
+    setTimeout(() => { render(); statusEl.style.display = "none"; }, 30);
+    return;
+  }
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+
+function getMedianBase(){
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const base = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
+  if (state.med === 0) return base;
+  if (medianCache.radius === state.med && medianCache.data) return medianCache.data;
+  const res = medianFilter(base, w, h, state.med);
+  medianCache = { radius: state.med, data: res };
+  return res;
+}
+
+function render(){
+  if (!srcCanvas) return;
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const base = getMedianBase();
+  const img = new ImageData(new Uint8ClampedArray(base.data), w, h);
+  const d = img.data;
+
+  // LUT: exposición + contraste
+  const lut = new Uint8ClampedArray(256);
+  const gain = Math.pow(2, state.exp / 100);
+  const C = state.con * 1.28;
+  const cf = (259 * (C + 255)) / (255 * (259 - C));
+  for (let v = 0; v < 256; v++){
+    let x = v * gain;
+    x = cf * (x - 128) + 128;
+    lut[v] = x < 0 ? 0 : x > 255 ? 255 : x;
+  }
+
+  const shAmt = state.sh / 100 * 70;   // levantar/bajar sombras
+  const hiAmt = state.hi / 100 * 70;   // subir/bajar luces
+  const tint = TINTS[state.mode];
+  const levels = state.pos;
+
+  for (let i = 0; i < d.length; i += 4){
+    let r = lut[d[i]], g = lut[d[i+1]], b = lut[d[i+2]];
+
+    // luces y sombras según luminancia
+    if (shAmt !== 0 || hiAmt !== 0){
+      const lum = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+      const delta = shAmt * (1 - lum) * (1 - lum) + hiAmt * lum * lum;
+      r += delta; g += delta; b += delta;
+      r = r < 0 ? 0 : r > 255 ? 255 : r;
+      g = g < 0 ? 0 : g > 255 ? 255 : g;
+      b = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+
+    if (tint){
+      let t = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+      if (levels > 1) t = Math.round(t * (levels - 1)) / (levels - 1);
+      r = tint[0][0] + (tint[1][0] - tint[0][0]) * t;
+      g = tint[0][1] + (tint[1][1] - tint[0][1]) * t;
+      b = tint[0][2] + (tint[1][2] - tint[0][2]) * t;
+    } else if (levels > 1){
+      const k = levels - 1;
+      r = Math.round(r / 255 * k) / k * 255;
+      g = Math.round(g / 255 * k) / k * 255;
+      b = Math.round(b / 255 * k) / k * 255;
+    }
+
+    d[i] = r; d[i+1] = g; d[i+2] = b;
+  }
+
+  ctx.putImageData(img, 0, 0);
+  drawGrid();
+}
+
+/* ---------- Cuadrícula ---------- */
+$("btnGrid").onclick = () => { gridOn = !gridOn; drawGrid(); };
+function drawGrid(){
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!gridOn) return;
+  const w = overlay.width, h = overlay.height, n = 4;
+  octx.strokeStyle = "rgba(255,255,255,.6)";
+  octx.lineWidth = Math.max(1, w / 900);
+  octx.setLineDash([6, 6]);
+  for (let i = 1; i < n; i++){
+    octx.beginPath(); octx.moveTo(w*i/n, 0); octx.lineTo(w*i/n, h); octx.stroke();
+    octx.beginPath(); octx.moveTo(0, h*i/n); octx.lineTo(w, h*i/n); octx.stroke();
+  }
+}
+
+/* ---------- Comparar con original ---------- */
+const cmp = $("btnCompare");
+function showOriginal(on){
+  if (!srcCanvas) return;
+  if (on){ ctx.drawImage(srcCanvas, 0, 0); octx.clearRect(0,0,overlay.width,overlay.height); }
+  else render();
+}
+["pointerdown"].forEach(ev => cmp.addEventListener(ev, () => showOriginal(true)));
+["pointerup","pointerleave","pointercancel"].forEach(ev => cmp.addEventListener(ev, () => showOriginal(false)));
+
+/* ---------- Descargar ---------- */
+$("btnDownload").onclick = () => {
+  const a = document.createElement("a");
+  a.download = "estudio-de-valores.png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+};
+</script>
+</body>
+</html>
