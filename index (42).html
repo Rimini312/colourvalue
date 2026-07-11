@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Estudio de Valores — herramienta para pintores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --panel:#1e1e21;
+    --panel-2:#2b2b2f;
+    --ink:#ECEAE6;
+    --muted:#9a978f;
+    --line:#3a3a3f;
+    --accent:#C8442D;      /* rojo cadmio */
+    --accent-soft:#e0604a;
+    --canvas-bg:#787878;   /* gris neutro ~18%, pared de taller */
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    background:var(--panel); color:var(--ink);
+    display:flex; flex-direction:column;
+    height:100dvh;
+  }
+
+  header{
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding:8px 16px; border-bottom:1px solid var(--line); flex-shrink:0;
+  }
+  header h1{font-family:"Fraunces",serif; font-weight:600; font-size:1.1rem;}
+  header h1 span{color:var(--accent-soft);}
+  header small{color:var(--muted); font-size:.72rem;}
+
+  /* ---------- Visor: la imagen manda ---------- */
+  #viewer{
+    flex:1; min-height:0; position:relative;
+    background:var(--canvas-bg);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  #dropzone{
+    border:2px dashed rgba(255,255,255,.5); border-radius:14px;
+    padding:34px 26px; text-align:center; color:#2e2e2e;
+    background:rgba(255,255,255,.12); cursor:pointer; max-width:420px; margin:16px;
+  }
+  #dropzone h3{font-family:"Fraunces",serif; font-size:1.1rem; margin-bottom:8px; color:#222;}
+  #dropzone p{font-size:.85rem; color:#333;}
+  #dropzone.drag{background:rgba(255,255,255,.3); border-color:#fff;}
+
+  #stage{position:relative; display:none; box-shadow:0 6px 30px rgba(0,0,0,.35); line-height:0;}
+  #canvas,#overlay{position:absolute; inset:0; width:100%; height:100%;}
+  #canvas{position:relative;
+    touch-action:manipulation; -webkit-touch-callout:none; user-select:none; -webkit-user-select:none;
+    cursor:pointer;}
+  #canvas.picking{cursor:crosshair;}
+  #overlay{pointer-events:none;}
+
+  #cropBox{
+    position:absolute; display:none; border:1.5px solid #fff;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.55); cursor:move; touch-action:none;
+  }
+  #cropBox::after{
+    content:""; position:absolute; right:-11px; bottom:-11px; width:24px; height:24px;
+    background:var(--accent); border:2px solid #fff; border-radius:5px; cursor:nwse-resize;
+  }
+
+  #pickBadge{
+    position:absolute; display:none; transform:translate(-50%,-150%);
+    background:rgba(0,0,0,.82); color:#fff; font-family:"IBM Plex Mono",monospace;
+    font-size:.78rem; padding:5px 9px; border-radius:6px; pointer-events:none; white-space:nowrap;
+  }
+
+  #status{
+    position:absolute; top:10px; right:12px; font-size:.78rem;
+    font-family:"IBM Plex Mono",monospace; color:#fff;
+    background:rgba(0,0,0,.55); padding:5px 10px; border-radius:6px; display:none; z-index:5;
+  }
+  #hintTap{
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    font-size:.7rem; color:rgba(0,0,0,.65); background:rgba(255,255,255,.35);
+    padding:3px 10px; border-radius:20px; pointer-events:none; white-space:nowrap;
+  }
+
+  /* ---------- Escala de valores ---------- */
+  #scaleWrap{display:none; flex-shrink:0; padding:8px 12px 2px; background:var(--panel);}
+  #scaleWrap.visible{display:block;}
+  #valueScale{
+    display:flex; position:relative; width:100%; max-width:720px; margin:0 auto;
+    height:16px; border-radius:5px;
+  }
+  #valueScale .step{flex:1;}
+  #valueScale .step:first-child{border-radius:5px 0 0 5px;}
+  #valueScale .step:last-child{border-radius:0 5px 5px 0;}
+  #scaleMarker{
+    position:absolute; top:-7px; width:0; height:0; display:none;
+    border-left:6px solid transparent; border-right:6px solid transparent;
+    border-top:8px solid var(--accent); transform:translateX(-50%);
+  }
+
+  /* ---------- Panel contextual ---------- */
+  #panelHost{flex-shrink:0; background:var(--panel); max-height:38dvh; overflow-y:auto;}
+  .panel{display:none; padding:12px 16px 6px; max-width:720px; margin:0 auto;}
+  .panel.open{display:block;}
+
+  .slider{margin-bottom:13px;}
+  .slider label{display:flex; justify-content:space-between; font-size:.82rem; margin-bottom:4px;}
+  .slider label b{font-family:"IBM Plex Mono",monospace; font-weight:500; color:var(--muted); font-size:.78rem;}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:26px; background:transparent; outline:none;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:4px; border-radius:2px; background:var(--line);}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:22px; height:22px; margin-top:-9px; border-radius:50%;
+    background:var(--ink); border:4px solid var(--accent); cursor:pointer;
+  }
+  input[type=range]::-moz-range-track{height:4px; border-radius:2px; background:var(--line);}
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%;
+    background:var(--ink); border:4px solid var(--accent); cursor:pointer;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--accent-soft); outline-offset:2px;}
+
+  .chips{display:flex; gap:7px; flex-wrap:wrap;}
+  .chips button{
+    font:inherit; font-size:.8rem; padding:9px 14px; border-radius:20px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--ink); cursor:pointer;
+  }
+  .chips button.active{border-color:var(--accent); background:#3a2621;}
+  .chips button:focus-visible{outline:2px solid var(--accent-soft);}
+  .chips button.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+
+  .hint{font-size:.73rem; color:var(--muted); line-height:1.45; margin-top:6px;}
+
+  /* ---------- Dock de pestañas ---------- */
+  #dock{
+    display:flex; flex-shrink:0; border-top:1px solid var(--line); background:var(--panel);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #dock button{
+    flex:1; padding:11px 2px 12px; font:inherit; font-size:.78rem;
+    background:none; border:none; color:var(--muted); cursor:pointer;
+    border-top:2px solid transparent;
+  }
+  #dock button.active{color:var(--ink); border-top-color:var(--accent);}
+  #dock button:focus-visible{outline:2px solid var(--accent-soft); outline-offset:-3px;}
+  #dock button:disabled{opacity:.35;}
+
+  body.immersive header,
+  body.immersive #scaleWrap,
+  body.immersive #panelHost,
+  body.immersive #dock{display:none;}
+
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important;} }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Estudio de <span>Valores</span></h1>
+  <small>toca la imagen: pantalla completa · mantén pulsado: original</small>
+</header>
+
+<div id="viewer">
+  <div id="dropzone" tabindex="0">
+    <h3>Toca para abrir una foto</h3>
+    <p>o arrástrala aquí · también con Ctrl+V</p>
+  </div>
+
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="cropBox"></div>
+    <div id="pickBadge"></div>
+  </div>
+
+  <div id="status">Procesando…</div>
+</div>
+
+<div id="scaleWrap" aria-hidden="true">
+  <div id="valueScale"><div id="scaleMarker"></div></div>
+</div>
+
+<div id="panelHost">
+
+  <section class="panel" data-panel="tono">
+    <div class="chips" id="modes">
+      <button data-mode="color" class="active">Color</button>
+      <button data-mode="bn">B / N</button>
+      <button data-mode="sepia">Sepia</button>
+      <button data-mode="frio">Frío</button>
+      <button data-mode="tierra">Tierra</button>
+      <button data-mode="verde">Verdacho</button>
+    </div>
+    <p class="hint">Pasa a B/N para juzgar los valores sin que el color te engañe.</p>
+  </section>
+
+  <section class="panel" data-panel="luz">
+    <div class="slider">
+      <label>Exposición <b id="vExp">0</b></label>
+      <input type="range" id="sExp" min="-100" max="100" value="0">
+    </div>
+    <div class="slider">
+      <label>Contraste <b id="vCon">0</b></label>
+      <input type="range" id="sCon" min="-100" max="100" value="0">
+    </div>
+    <div class="slider">
+      <label>Luces <b id="vHi">0</b></label>
+      <input type="range" id="sHi" min="-100" max="100" value="0">
+    </div>
+    <div class="slider">
+      <label>Sombras <b id="vSh">0</b></label>
+      <input type="range" id="sSh" min="-100" max="100" value="0">
+    </div>
+  </section>
+
+  <section class="panel" data-panel="simplificar">
+    <div class="slider">
+      <label>Mediana — manchas de tono <b id="vMed">0</b></label>
+      <input type="range" id="sMed" min="0" max="30" value="0">
+    </div>
+    <div class="slider">
+      <label>Suavizar — fundido <b id="vBlur">0</b></label>
+      <input type="range" id="sBlur" min="0" max="12" value="0">
+    </div>
+    <div class="slider">
+      <label>Posterizar — nº de valores <b id="vPos">off</b></label>
+      <input type="range" id="sPos" min="1" max="8" value="1">
+    </div>
+    <p class="hint">Mediana funde el detalle sin cambiar los valores: a tope (30) deja solo grandes manchas. Suavizar añade el fundido de Photoshop. Posterizar decide cuántos valores quedan: 2–3 para el notan, 5 para el bloqueo inicial.</p>
+  </section>
+
+  <section class="panel" data-panel="editar">
+    <div class="chips">
+      <button id="btnCrop">Recortar</button>
+      <button id="btnFlip" title="Espejo: revela errores de dibujo">Espejo</button>
+      <button id="btnRotate">Girar 90°</button>
+      <button id="btnGrid">Cuadrícula</button>
+      <button id="btnPicker">Cuentagotas</button>
+    </div>
+    <div class="chips" id="cropActions" style="display:none; margin-top:10px;">
+      <button class="primary" id="btnCropApply">Aplicar recorte</button>
+      <button id="btnCropCancel">Cancelar</button>
+    </div>
+    <p class="hint" id="editHint">Con el cuentagotas activo, toca la imagen para leer su valor (0–9) en la escala.</p>
+  </section>
+
+  <section class="panel" data-panel="mas">
+    <div class="chips">
+      <button class="primary" id="btnDownload">Descargar PNG</button>
+      <button id="btnOpen2">Abrir otra foto</button>
+      <button id="btnReset">Reiniciar ajustes</button>
+    </div>
+    <p class="hint">Todo se procesa en tu dispositivo; ninguna foto sale de él. El fondo gris neutro (~18 %) evita que el entorno falsee los valores.</p>
+  </section>
+
+</div>
+
+<nav id="dock">
+  <button data-panel="tono" disabled>Tono</button>
+  <button data-panel="luz" disabled>Luz</button>
+  <button data-panel="simplificar" disabled>Simplificar</button>
+  <button data-panel="editar" disabled>Editar</button>
+  <button data-panel="mas" disabled>Más</button>
+</nav>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+
+<script>
+"use strict";
+
+/* ================= Estado ================= */
+const isSmall = matchMedia("(max-width:820px)").matches;
+const MAX_DIM = isSmall ? 1200 : 1600;
+let srcCanvas = null;
+let baseCache = { key:"", data:null };   // mediana+suavizado en caché
+let cropMode = false, gridOn = false, pickerOn = false;
+
+const state = { mode:"color", exp:0, con:0, hi:0, sh:0, med:0, blur:0, pos:1 };
+
+const $ = id => document.getElementById(id);
+const viewer = $("viewer"), stage = $("stage");
+const canvas = $("canvas"), ctx = canvas.getContext("2d");
+const overlay = $("overlay"), octx = overlay.getContext("2d");
+const dropzone = $("dropzone"), statusEl = $("status"), cropBox = $("cropBox");
+
+/* Máscaras de luces/sombras precalculadas (por luminancia) */
+const SH_LUT = new Float32Array(256), HI_LUT = new Float32Array(256);
+for (let v = 0; v < 256; v++){
+  const l = v / 255;
+  SH_LUT[v] = Math.pow(1 - l, 1.5);
+  HI_LUT[v] = Math.pow(l, 1.5);
+}
+
+/* ================= Escala de valores ================= */
+(function buildScale(){
+  const bar = $("valueScale");
+  for (let i = 0; i < 10; i++){
+    const d = document.createElement("div");
+    d.className = "step";
+    const v = Math.round(255 * i / 9);
+    d.style.background = `rgb(${v},${v},${v})`;
+    bar.appendChild(d);
+  }
+})();
+
+/* ================= Carga ================= */
+function loadFile(file){
+  if (!file || !file.type.startsWith("image/")) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => { URL.revokeObjectURL(url); setSource(img, img.naturalWidth, img.naturalHeight); };
+  img.src = url;
+}
+
+function setSource(drawable, w, h){
+  const k = Math.min(1, MAX_DIM / Math.max(w, h));
+  const nw = Math.max(1, Math.round(w * k)), nh = Math.max(1, Math.round(h * k));
+  srcCanvas = document.createElement("canvas");
+  srcCanvas.width = nw; srcCanvas.height = nh;
+  srcCanvas.getContext("2d").drawImage(drawable, 0, 0, nw, nh);
+  baseCache = { key:"", data:null };
+  canvas.width = overlay.width = nw;
+  canvas.height = overlay.height = nh;
+  dropzone.style.display = "none";
+  stage.style.display = "block";
+  $("scaleWrap").classList.add("visible");
+  document.querySelectorAll("#dock button").forEach(b => b.disabled = false);
+  hidePick();
+  fitStage();
+  scheduleRender(true);
+}
+
+/* Ajusta el tamaño visible de la imagen al espacio del visor, sin recortes */
+function fitStage(){
+  if (!srcCanvas) return;
+  const pad = 14;
+  const vw = viewer.clientWidth - pad * 2;
+  const vh = viewer.clientHeight - pad * 2;
+  const k = Math.min(vw / srcCanvas.width, vh / srcCanvas.height);
+  stage.style.width  = Math.max(1, Math.floor(srcCanvas.width  * k)) + "px";
+  stage.style.height = Math.max(1, Math.floor(srcCanvas.height * k)) + "px";
+}
+new ResizeObserver(fitStage).observe(viewer);
+addEventListener("resize", fitStage);
+
+dropzone.onclick = () => $("fileInput").click();
+dropzone.onkeydown = e => { if (e.key === "Enter" || e.key === " ") $("fileInput").click(); };
+$("btnOpen2").onclick = () => $("fileInput").click();
+$("fileInput").onchange = e => loadFile(e.target.files[0]);
+
+["dragover","dragleave","drop"].forEach(ev =>
+  document.addEventListener(ev, e => {
+    e.preventDefault();
+    dropzone.classList.toggle("drag", ev === "dragover");
+    if (ev === "drop") loadFile(e.dataTransfer.files[0]);
+  })
+);
+document.addEventListener("paste", e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) loadFile(item.getAsFile());
+});
+
+/* ================= Dock y paneles ================= */
+let openPanel = null;
+document.querySelectorAll("#dock button").forEach(btn => {
+  btn.onclick = () => {
+    const name = btn.dataset.panel;
+    const next = openPanel === name ? null : name;
+    openPanel = next;
+    document.querySelectorAll("#dock button").forEach(b =>
+      b.classList.toggle("active", b.dataset.panel === next));
+    document.querySelectorAll(".panel").forEach(p =>
+      p.classList.toggle("open", p.dataset.panel === next));
+    requestAnimationFrame(fitStage);
+  };
+});
+
+/* ================= Sliders y modos ================= */
+function bindSlider(id, key, labelId, fmt, heavy){
+  const el = $("s" + id);
+  el.addEventListener("input", () => {
+    state[key] = +el.value;
+    $(labelId).textContent = fmt(+el.value);
+    if (!heavy) scheduleRender();
+  });
+  if (heavy) el.addEventListener("change", () => scheduleRender(true));
+}
+bindSlider("Exp","exp","vExp", v => v, false);
+bindSlider("Con","con","vCon", v => v, false);
+bindSlider("Hi","hi","vHi", v => v, false);
+bindSlider("Sh","sh","vSh", v => v, false);
+bindSlider("Med","med","vMed", v => v, true);
+bindSlider("Blur","blur","vBlur", v => v, true);
+bindSlider("Pos","pos","vPos", v => v <= 1 ? "off" : v + " valores", false);
+
+$("modes").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("modes").children].forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  state.mode = b.dataset.mode;
+  scheduleRender();
+});
+
+$("btnReset").onclick = () => {
+  state.exp = state.con = state.hi = state.sh = state.med = state.blur = 0; state.pos = 1;
+  ["Exp","Con","Hi","Sh","Med","Blur"].forEach(id => $("s"+id).value = 0);
+  $("sPos").value = 1;
+  ["vExp","vCon","vHi","vSh","vMed","vBlur"].forEach(id => $(id).textContent = "0");
+  $("vPos").textContent = "off";
+  scheduleRender(true);
+};
+
+/* ================= Girar / espejo ================= */
+$("btnRotate").onclick = () => {
+  const c = document.createElement("canvas");
+  c.width = srcCanvas.height; c.height = srcCanvas.width;
+  const x = c.getContext("2d");
+  x.translate(c.width, 0); x.rotate(Math.PI / 2);
+  x.drawImage(srcCanvas, 0, 0);
+  setSource(c, c.width, c.height);
+};
+$("btnFlip").onclick = () => {
+  const c = document.createElement("canvas");
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const x = c.getContext("2d");
+  x.translate(c.width, 0); x.scale(-1, 1);
+  x.drawImage(srcCanvas, 0, 0);
+  setSource(c, c.width, c.height);
+};
+
+/* ================= Recorte ================= */
+let crop = null; // coords relativas al stage (px de pantalla)
+$("btnCrop").onclick = () => {
+  if (!srcCanvas) return;
+  cropMode = true;
+  setPicker(false);
+  $("cropActions").style.display = "flex";
+  const w = stage.clientWidth, h = stage.clientHeight;
+  crop = { x: w * .1, y: h * .1, w: w * .8, h: h * .8 };
+  drawCropBox();
+  cropBox.style.display = "block";
+};
+function drawCropBox(){
+  cropBox.style.left = crop.x + "px";
+  cropBox.style.top = crop.y + "px";
+  cropBox.style.width = crop.w + "px";
+  cropBox.style.height = crop.h + "px";
+}
+let drag = null;
+cropBox.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  cropBox.setPointerCapture(e.pointerId);
+  const r = cropBox.getBoundingClientRect();
+  const corner = (r.right - e.clientX < 30) && (r.bottom - e.clientY < 30);
+  drag = { mode: corner ? "resize" : "move", sx: e.clientX, sy: e.clientY, ...crop };
+});
+cropBox.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (drag.mode === "move"){
+    crop.x = Math.min(Math.max(0, drag.x + dx), W - crop.w);
+    crop.y = Math.min(Math.max(0, drag.y + dy), H - crop.h);
+  } else {
+    crop.w = Math.min(Math.max(30, drag.w + dx), W - crop.x);
+    crop.h = Math.min(Math.max(30, drag.h + dy), H - crop.y);
+  }
+  drawCropBox();
+});
+["pointerup","pointercancel"].forEach(ev => cropBox.addEventListener(ev, () => drag = null));
+
+$("btnCropCancel").onclick = endCrop;
+$("btnCropApply").onclick = () => {
+  const k = srcCanvas.width / stage.clientWidth;
+  const sx = Math.max(0, Math.round(crop.x * k));
+  const sy = Math.max(0, Math.round(crop.y * k));
+  const sw = Math.min(srcCanvas.width - sx, Math.round(crop.w * k));
+  const sh = Math.min(srcCanvas.height - sy, Math.round(crop.h * k));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, sw); c.height = Math.max(1, sh);
+  c.getContext("2d").drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  endCrop();
+  setSource(c, c.width, c.height);
+};
+function endCrop(){
+  cropMode = false;
+  cropBox.style.display = "none";
+  $("cropActions").style.display = "none";
+}
+
+/* ================= Mediana (Huang) ================= */
+function medianFilter(srcData, w, h, r){
+  const src = srcData.data;
+  const out = new Uint8ClampedArray(src.length);
+  const area = (2*r+1) * (2*r+1), half = area >> 1;
+  for (let ch = 0; ch < 3; ch++){
+    const hist = new Int32Array(256);
+    for (let y = 0; y < h; y++){
+      hist.fill(0);
+      for (let j = -r; j <= r; j++){
+        let yy = y + j; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+        const row = yy * w;
+        for (let i = -r; i <= r; i++){
+          let xx = i; if (xx < 0) xx = 0;
+          hist[src[(row + xx) * 4 + ch]]++;
+        }
+      }
+      let mdn = 0, lt = 0;
+      while (lt + hist[mdn] <= half){ lt += hist[mdn]; mdn++; }
+      out[(y * w) * 4 + ch] = mdn;
+      for (let x = 1; x < w; x++){
+        let xl = x - r - 1; if (xl < 0) xl = 0;
+        let xr = x + r; if (xr >= w) xr = w - 1;
+        for (let j = -r; j <= r; j++){
+          let yy = y + j; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+          const row = yy * w;
+          const vO = src[(row + xl) * 4 + ch];
+          hist[vO]--; if (vO < mdn) lt--;
+          const vI = src[(row + xr) * 4 + ch];
+          hist[vI]++; if (vI < mdn) lt++;
+        }
+        while (lt > half){ mdn--; lt -= hist[mdn]; }
+        while (lt + hist[mdn] <= half){ lt += hist[mdn]; mdn++; }
+        out[(y * w + x) * 4 + ch] = mdn;
+      }
+    }
+  }
+  for (let i = 3; i < src.length; i += 4) out[i] = src[i];
+  return new ImageData(out, w, h);
+}
+
+/* ============ Desenfoque gaussiano propio (3 pasadas de box blur) ============
+   Escrito a mano en JS: funciona igual en todos los navegadores, iPhone incluido. */
+function gaussianBlur(imgData, w, h, radius){
+  const a = imgData.data;
+  const b = new Uint8ClampedArray(a.length);
+  for (let it = 0; it < 3; it++){
+    blurAxis(a, b, w, h, radius, true);
+    blurAxis(b, a, w, h, radius, false);
+  }
+  return imgData;
+}
+function blurAxis(src, dst, w, h, r, horiz){
+  const len = horiz ? w : h;
+  const lines = horiz ? h : w;
+  const step = horiz ? 1 : w;
+  const div = 2 * r + 1;
+  for (let ch = 0; ch < 3; ch++){
+    for (let l = 0; l < lines; l++){
+      const base = horiz ? l * w : l;
+      let sum = 0;
+      for (let i = -r; i <= r; i++){
+        let idx = i; if (idx < 0) idx = 0; else if (idx >= len) idx = len - 1;
+        sum += src[(base + idx * step) * 4 + ch];
+      }
+      for (let i = 0; i < len; i++){
+        dst[(base + i * step) * 4 + ch] = sum / div;
+        let ai = i + r + 1; if (ai >= len) ai = len - 1;
+        let si = i - r; if (si < 0) si = 0;
+        sum += src[(base + ai * step) * 4 + ch] - src[(base + si * step) * 4 + ch];
+      }
+    }
+  }
+  for (let i = 3; i < src.length; i += 4) dst[i] = 255;
+}
+
+/* ================= Duotonos ================= */
+const TINTS = {
+  bn:     [[0,0,0],       [255,255,255]],
+  sepia:  [[38,26,14],    [255,244,220]],
+  frio:   [[12,22,44],    [226,240,255]],
+  tierra: [[46,18,10],    [255,236,214]],
+  verde:  [[18,30,20],    [235,244,226]]
+};
+
+/* ================= Render ================= */
+let renderQueued = false;
+function scheduleRender(heavy = false){
+  if (heavy){
+    statusEl.style.display = "block";
+    setTimeout(() => { render(); statusEl.style.display = "none"; }, 30);
+    return;
+  }
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+
+/* Mediana con radios grandes: a partir de 8, se procesa la imagen
+   reducida (radio equivalente) y se reescala — mismo aspecto, sin esperas. */
+function applyMedian(w, h){
+  const r = state.med, MAXR = 8;
+  if (r <= MAXR){
+    const img = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
+    return medianFilter(img, w, h, r);
+  }
+  const k = MAXR / r;
+  const sw = Math.max(1, Math.round(w * k)), sh = Math.max(1, Math.round(h * k));
+  const small = document.createElement("canvas");
+  small.width = sw; small.height = sh;
+  const sc = small.getContext("2d");
+  sc.drawImage(srcCanvas, 0, 0, sw, sh);
+  const med = medianFilter(sc.getImageData(0, 0, sw, sh), sw, sh, MAXR);
+  sc.putImageData(med, 0, 0);
+  const big = document.createElement("canvas");
+  big.width = w; big.height = h;
+  const bc = big.getContext("2d");
+  bc.imageSmoothingEnabled = true;
+  bc.imageSmoothingQuality = "high";
+  bc.drawImage(small, 0, 0, w, h);
+  return bc.getImageData(0, 0, w, h);
+}
+
+function getBase(){
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const key = state.med + "_" + state.blur;
+  if (baseCache.key === key && baseCache.data) return baseCache.data;
+  let img;
+  if (state.med > 0) img = applyMedian(w, h);
+  else img = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
+  if (state.blur > 0) img = gaussianBlur(img, w, h, Math.max(1, Math.round(state.blur / 2)));
+  baseCache = { key, data: img };
+  return img;
+}
+
+function render(){
+  if (!srcCanvas) return;
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const base = getBase();
+  const img = new ImageData(new Uint8ClampedArray(base.data), w, h);
+  const d = img.data;
+
+  /* LUT exposición (±2 pasos reales) + contraste */
+  const lut = new Uint8ClampedArray(256);
+  const gain = Math.pow(2, state.exp / 50);
+  const C = state.con * 1.28;
+  const cf = (259 * (C + 255)) / (255 * (259 - C));
+  for (let v = 0; v < 256; v++){
+    let x = v * gain;
+    x = cf * (x - 128) + 128;
+    lut[v] = x < 0 ? 0 : x > 255 ? 255 : x;
+  }
+
+  const shAmt = state.sh / 100 * 110;
+  const hiAmt = state.hi / 100 * 110;
+  const doSH = shAmt !== 0 || hiAmt !== 0;
+  const tint = TINTS[state.mode];
+  const levels = state.pos;
+
+  for (let i = 0; i < d.length; i += 4){
+    let r = lut[d[i]], g = lut[d[i+1]], b = lut[d[i+2]];
+
+    if (doSH){
+      let li = (0.2126*r + 0.7152*g + 0.0722*b) | 0;
+      if (li > 255) li = 255;
+      const delta = shAmt * SH_LUT[li] + hiAmt * HI_LUT[li];
+      r += delta; g += delta; b += delta;
+      r = r < 0 ? 0 : r > 255 ? 255 : r;
+      g = g < 0 ? 0 : g > 255 ? 255 : g;
+      b = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+
+    if (tint){
+      let t = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+      if (levels > 1) t = Math.round(t * (levels - 1)) / (levels - 1);
+      r = tint[0][0] + (tint[1][0] - tint[0][0]) * t;
+      g = tint[0][1] + (tint[1][1] - tint[0][1]) * t;
+      b = tint[0][2] + (tint[1][2] - tint[0][2]) * t;
+    } else if (levels > 1){
+      const k = levels - 1;
+      r = Math.round(r / 255 * k) / k * 255;
+      g = Math.round(g / 255 * k) / k * 255;
+      b = Math.round(b / 255 * k) / k * 255;
+    }
+
+    d[i] = r; d[i+1] = g; d[i+2] = b;
+  }
+
+  ctx.putImageData(img, 0, 0);
+  drawGrid();
+}
+
+/* ================= Cuadrícula ================= */
+$("btnGrid").onclick = () => { gridOn = !gridOn; $("btnGrid").classList.toggle("active", gridOn); drawGrid(); };
+function drawGrid(){
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!gridOn) return;
+  const w = overlay.width, h = overlay.height, n = 4;
+  octx.strokeStyle = "rgba(255,255,255,.6)";
+  octx.lineWidth = Math.max(1, w / 900);
+  octx.setLineDash([6, 6]);
+  for (let i = 1; i < n; i++){
+    octx.beginPath(); octx.moveTo(w*i/n, 0); octx.lineTo(w*i/n, h); octx.stroke();
+    octx.beginPath(); octx.moveTo(0, h*i/n); octx.lineTo(w, h*i/n); octx.stroke();
+  }
+}
+
+/* ================= Original / pantalla completa (gestos en la imagen) =================
+   Toque corto: entra/sale de pantalla completa.
+   Mantener pulsado (>0,3 s): muestra el original hasta soltar. */
+let pressTimer = null, holdActive = false, suppressTap = false;
+
+function showOriginal(on){
+  if (!srcCanvas) return;
+  if (on){ ctx.drawImage(srcCanvas, 0, 0); octx.clearRect(0,0,overlay.width,overlay.height); }
+  else render();
+}
+
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+  if (cropMode) return;
+  if (pickerOn){ pickValue(e); suppressTap = true; return; }
+  holdActive = false;
+  pressTimer = setTimeout(() => { holdActive = true; showOriginal(true); }, 300);
+});
+["pointerup","pointerleave","pointercancel"].forEach(ev =>
+  canvas.addEventListener(ev, () => {
+    clearTimeout(pressTimer);
+    if (holdActive){ showOriginal(false); holdActive = false; suppressTap = true; }
+  })
+);
+canvas.addEventListener("click", () => {
+  if (cropMode) return;
+  if (suppressTap){ suppressTap = false; return; }
+  document.body.classList.toggle("immersive");
+  requestAnimationFrame(fitStage);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.body.classList.contains("immersive")){
+    document.body.classList.remove("immersive");
+    requestAnimationFrame(fitStage);
+  }
+});
+
+/* ================= Cuentagotas ================= */
+function setPicker(on){
+  pickerOn = on;
+  $("btnPicker").classList.toggle("active", on);
+  canvas.classList.toggle("picking", on);
+  $("editHint").textContent = on
+    ? "Cuentagotas activo: toca la imagen para leer el valor. Vuelve a pulsar el botón para salir."
+    : "Con el cuentagotas activo, toca la imagen para leer su valor (0–9) en la escala.";
+  if (!on) hidePick();
+}
+$("btnPicker").onclick = () => setPicker(!pickerOn);
+
+function pickValue(e){
+  const r = canvas.getBoundingClientRect();
+  const px = Math.min(canvas.width - 1, Math.max(0, Math.round((e.clientX - r.left) / r.width * canvas.width)));
+  const py = Math.min(canvas.height - 1, Math.max(0, Math.round((e.clientY - r.top) / r.height * canvas.height)));
+  const p = ctx.getImageData(px, py, 1, 1).data;
+  const lum = 0.2126*p[0] + 0.7152*p[1] + 0.0722*p[2];
+  const val = Math.round(lum / 255 * 9);
+  const pct = Math.round(lum / 255 * 100);
+
+  const badge = $("pickBadge");
+  badge.style.left = (e.clientX - r.left) + "px";
+  badge.style.top = (e.clientY - r.top) + "px";
+  badge.textContent = `Valor ${val} · ${pct}% luz`;
+  badge.style.display = "block";
+
+  const marker = $("scaleMarker");
+  marker.style.left = ((val + 0.5) / 10 * 100) + "%";
+  marker.style.display = "block";
+}
+function hidePick(){
+  $("pickBadge").style.display = "none";
+  $("scaleMarker").style.display = "none";
+}
+
+/* ================= Descargar ================= */
+$("btnDownload").onclick = () => {
+  const a = document.createElement("a");
+  a.download = "estudio-de-valores.png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+};
+</script>
+</body>
+</html>
